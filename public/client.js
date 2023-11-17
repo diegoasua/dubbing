@@ -49,7 +49,19 @@ async function start(socket) {
   });
 }
 
+function enableAudioPlayback() {
+  const audio = new Audio();
+  audio.src = 'data:audio/wav;base64,UklGRi4AAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQcAABAAAABkYXRhAgAAEA=='; // Silent audio data URI
+  audio.play().then(() => {
+    console.log('Audio playback enabled');
+  }).catch((e) => {
+    console.error('Error enabling audio playback:', e);
+  });
+}
+
 window.addEventListener("load", () => {
+  const initAudioButton = document.getElementById('initAudio');
+  initAudioButton.addEventListener('click', enableAudioPlayback);
   const socket = io((options = { transports: ["websocket"] }));
 
   socket.on("connect", async () => {
@@ -59,5 +71,13 @@ window.addEventListener("load", () => {
 
   socket.on("transcript", (transcript) => {
     captions.innerHTML = transcript ? `<span>${transcript}</span>` : "";
+  });
+
+  socket.on("audio-chunk", (chunk) => {
+    const audioPlayer = document.getElementById("audioPlayer");
+    const blob = new Blob([chunk], { type: 'audio/wav' });
+    const url = window.URL.createObjectURL(blob);
+    audioPlayer.src = url;
+    audioPlayer.play();
   });
 });

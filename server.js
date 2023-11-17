@@ -3,12 +3,16 @@ const http = require("http");
 const { Server } = require("socket.io");
 const { Deepgram } = require("@deepgram/sdk");
 const dotenv = require("dotenv");
+const { OpenAI } = require('openai');
+const https = require('https');
+
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const client = new Deepgram(process.env.DEEPGRAM_API_KEY);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 let keepAlive;
 
 const setupDeepgram = (socket) => {
@@ -39,7 +43,7 @@ const setupDeepgram = (socket) => {
       console.error(error);
     });
 
-    deepgram.addListener("transcriptReceived", (packet) => {
+    deepgram.addListener("transcriptReceived", async (packet) => {
       console.log("deepgram: packet received");
       const data = JSON.parse(packet);
       const { type } = data;
@@ -49,6 +53,9 @@ const setupDeepgram = (socket) => {
           const transcript = data.channel.alternatives[0].transcript ?? "";
           console.log("socket: transcript sent to client");
           socket.emit("transcript", transcript);
+
+          // Call generateSpeech directly with the transcript and socket
+          await generateSpeech(transcript, socket);
           break;
         case "Metadata":
           console.log("deepgram: metadata received");
@@ -58,10 +65,44 @@ const setupDeepgram = (socket) => {
           break;
       }
     });
+
   });
 
   return deepgram;
 };
+
+async function generateSpeech(text, socket) {
+  if (!text || text.trim().length === 0) {
+    console.log("generateSpeech: Received empty text, not sending to OpenAI TTS");
+    return;
+  }
+
+  console.log(`generateSpeech: Sending text to OpenAI TTS: "${text}"`);
+
+  try {
+    const response = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: "alloy",
+      input: text,
+    });
+
+    // Handling the response as a stream
+    let chunks = [];
+    response.body.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    response.body.on('end', () => {
+      const audioData = Buffer.concat(chunks);
+      console.log("generateSpeech: Audio data received, sending to client");
+      socket.emit("audio-chunk", audioData);
+    });
+
+  } catch (error) {
+    console.error('generateSpeech: Error generating speech:', error);
+  }
+}
+
 
 io.on("connection", (socket) => {
   console.log("socket: client connected");
