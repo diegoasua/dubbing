@@ -1,4 +1,6 @@
 const captions = window.document.getElementById("captions");
+let audioQueue = []; // Queue for storing audio chunks
+let isAudioPlaying = false; // Flag to check if audio is playing
 
 async function getMicrophone() {
   const userMedia = await navigator.mediaDevices.getUserMedia({
@@ -59,6 +61,23 @@ function enableAudioPlayback() {
   });
 }
 
+// Function to play audio from the queue
+function playAudioFromQueue() {
+  if (audioQueue.length > 0 && !isAudioPlaying) {
+    const chunk = audioQueue.shift();
+    const audioPlayer = document.getElementById("audioPlayer");
+    const blob = new Blob([chunk], { type: 'audio/wav' });
+    const url = window.URL.createObjectURL(blob);
+    audioPlayer.src = url;
+    audioPlayer.play();
+    isAudioPlaying = true;
+    audioPlayer.onended = () => {
+      isAudioPlaying = false;
+      playAudioFromQueue(); // Play next audio in the queue
+    };
+  }
+}
+
 window.addEventListener("load", () => {
   const initAudioButton = document.getElementById('initAudio');
   initAudioButton.addEventListener('click', enableAudioPlayback);
@@ -74,10 +93,7 @@ window.addEventListener("load", () => {
   });
 
   socket.on("audio-chunk", (chunk) => {
-    const audioPlayer = document.getElementById("audioPlayer");
-    const blob = new Blob([chunk], { type: 'audio/wav' });
-    const url = window.URL.createObjectURL(blob);
-    audioPlayer.src = url;
-    audioPlayer.play();
+    audioQueue.push(chunk); // Add chunk to queue
+    playAudioFromQueue(); // Attempt to play audio from queue
   });
 });
