@@ -14,13 +14,14 @@ const io = new Server(server);
 const client = new Deepgram(process.env.DEEPGRAM_API_KEY);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 let keepAlive;
+let startTime; // Variable to store the start time
 
 const setupDeepgram = (socket) => {
   const deepgram = client.transcription.live({
     language: "en",
     punctuate: true,
     smart_format: true,
-    model: "nova",
+    model: "nova-2",
   });
 
   if (keepAlive) clearInterval(keepAlive);
@@ -78,6 +79,7 @@ async function generateSpeech(text, socket) {
   }
 
   console.log(`generateSpeech: Sending text to OpenAI TTS: "${text}"`);
+  startTime = new Date(); // Record start time just before sending the request
 
   try {
     const response = await openai.audio.speech.create({
@@ -93,6 +95,10 @@ async function generateSpeech(text, socket) {
     });
 
     response.body.on('end', () => {
+      const endTime = new Date(); // Record end time when response is fully received
+      const delay = endTime - startTime; // Calculate the delay
+      console.log(`Delay from request to TTS response: ${delay} ms`);
+
       const audioData = Buffer.concat(chunks);
       console.log("generateSpeech: Audio data received, sending to client");
       socket.emit("audio-chunk", audioData);
@@ -104,12 +110,14 @@ async function generateSpeech(text, socket) {
 }
 
 
+
 io.on("connection", (socket) => {
   console.log("socket: client connected");
   let deepgram = setupDeepgram(socket);
 
   socket.on("packet-sent", (data) => {
     console.log("socket: client data received");
+    // startTime = new Date(); // Set the start time when receiving audio data
 
     if (deepgram.getReadyState() === 1 /* OPEN */) {
       console.log("socket: data sent to deepgram");

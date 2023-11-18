@@ -1,3 +1,5 @@
+let startTime; // Variable to store the start time when the first word is recorded
+
 const captions = window.document.getElementById("captions");
 let audioQueue = []; // Queue for storing audio chunks
 let isAudioPlaying = false; // Flag to check if audio is playing
@@ -25,8 +27,12 @@ async function openMicrophone(microphone, socket) {
 
   microphone.ondataavailable = (e) => {
     console.log("client: sent data to websocket");
+    if (!startTime) {
+      startTime = new Date(); // Record the start time when the first word is detected
+    }
     socket.emit("packet-sent", e.data);
   };
+
 }
 
 async function closeMicrophone(microphone) {
@@ -69,6 +75,11 @@ function playAudioFromQueue() {
     const blob = new Blob([chunk], { type: 'audio/wav' });
     const url = window.URL.createObjectURL(blob);
     audioPlayer.src = url;
+
+    const playStartTime = new Date(); // Record the time just before playing
+    const delay = playStartTime - startTime; // Calculate the delay
+    console.log(`Delay from first word recorded to sound play: ${delay} ms`);
+
     audioPlayer.play();
     isAudioPlaying = true;
     audioPlayer.onended = () => {
