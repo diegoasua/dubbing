@@ -20,7 +20,8 @@ const setupDeepgram = (socket) => {
   const deepgram = client.transcription.live({
     language: "en",
     punctuate: true,
-    smart_format: true,
+    smart_format: false,
+    filler_words: false,
     model: "nova-2",
   });
 
@@ -84,7 +85,7 @@ async function generateSpeech(text, socket) {
   try {
     const response = await openai.audio.speech.create({
       model: "tts-1",
-      voice: "alloy",
+      voice: "onyx",
       input: text,
     });
 
