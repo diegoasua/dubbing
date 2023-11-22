@@ -14,7 +14,37 @@ const io = new Server(server);
 const client = new Deepgram(process.env.DEEPGRAM_API_KEY);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 let keepAlive;
-let startTime; // Variable to store the start time
+let startTime;
+let deepgramSTTStartTime; // Variable to store the start time for Deepgram transcription
+let firstPacketSent = false; // Flag to check if the first packet has been sent
+
+// Function to manage the size of audio packets
+function createAudioPacketManager(deepgram) {
+  const BUFFER_DURATION_MS = 50; // Set the desired buffer duration in milliseconds (e.g., 50 ms)
+  let buffer = Buffer.alloc(0);
+  let lastSendTime = Date.now();
+
+  function sendBuffer() {
+    if (buffer.length > 0) {
+      deepgram.send(buffer);
+      buffer = Buffer.alloc(0);
+    }
+    lastSendTime = Date.now();
+  }
+
+  return {
+    addToBuffer: function (data) {
+      buffer = Buffer.concat([buffer, data]);
+
+      if (Date.now() - lastSendTime >= BUFFER_DURATION_MS) {
+        sendBuffer();
+      }
+    },
+    flush: function () {
+      sendBuffer();
+    },
+  };
+}
 
 const setupDeepgram = (socket) => {
   const deepgram = client.transcription.live({
@@ -22,6 +52,7 @@ const setupDeepgram = (socket) => {
     punctuate: true,
     smart_format: false,
     filler_words: false,
+    interim_results: false, // whether to send only is_final=true
     model: "nova-2",
   });
 
@@ -46,6 +77,11 @@ const setupDeepgram = (socket) => {
     });
 
     deepgram.addListener("transcriptReceived", async (packet) => {
+      if (firstPacketSent) {
+        const deepgramSTTTime = Date.now() - deepgramSTTStartTime;
+        console.log(`Deepgram_stt_time: Time from first packet to transcription: ${deepgramSTTTime} ms`);
+        firstPacketSent = false; // Reset the flag after logging the time
+      }
       console.log("deepgram: packet received");
       const data = JSON.parse(packet);
       const { type } = data;
@@ -111,27 +147,26 @@ async function generateSpeech(text, socket) {
 }
 
 
-
 io.on("connection", (socket) => {
   console.log("socket: client connected");
   let deepgram = setupDeepgram(socket);
+  let audioPacketManager = createAudioPacketManager(deepgram);
 
   socket.on("packet-sent", (data) => {
     console.log("socket: client data received");
-    // startTime = new Date(); // Set the start time when receiving audio data
+    if (!firstPacketSent) {
+      deepgramSTTStartTime = Date.now(); // Record start time for the first packet
+      firstPacketSent = true;
+    }
+    audioPacketManager.addToBuffer(data);
 
-    if (deepgram.getReadyState() === 1 /* OPEN */) {
-      console.log("socket: data sent to deepgram");
-      deepgram.send(data);
-    } else if (deepgram.getReadyState() >= 2 /* 2 = CLOSING, 3 = CLOSED */) {
+    if (deepgram.getReadyState() >= 2) {
       console.log("socket: data couldn't be sent to deepgram");
       console.log("socket: retrying connection to deepgram");
-      /* Attempt to reopen the Deepgram connection */
       deepgram.finish();
       deepgram.removeAllListeners();
       deepgram = setupDeepgram(socket);
-    } else {
-      console.log("socket: data couldn't be sent to deepgram");
+      audioPacketManager = createAudioPacketManager(deepgram);
     }
   });
 
