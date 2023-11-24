@@ -13,4 +13,4 @@ Once the server is running, open the following url in the browser
 http://localhost:3000/
 ```
 
-Click on the button when you're ready to transcribe.
+Click on the button when you're ready to start dubbing.
