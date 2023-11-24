@@ -52,8 +52,8 @@ const setupDeepgram = (socket) => {
     punctuate: true,
     smart_format: false,
     filler_words: false,
-    interim_results: false, // whether to send only is_final=true
-    model: "nova-2",
+    interim_results: true, // whether to send only is_final=true
+    model: "enhanced",
   });
 
   if (keepAlive) clearInterval(keepAlive);
