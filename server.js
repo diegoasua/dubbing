@@ -17,6 +17,7 @@ let keepAlive;
 let startTime;
 let deepgramSTTStartTime; // Variable to store the start time for Deepgram transcription
 let firstPacketSent = false; // Flag to check if the first packet has been sent
+let lastTranscript = ""; // To keep track of the last transcript sent to TTS
 
 // Function to manage the size of audio packets
 function createAudioPacketManager(deepgram) {
@@ -89,17 +90,17 @@ const setupDeepgram = (socket) => {
         case "Results":
           console.log("deepgram: transcript received");
           const transcript = data.channel.alternatives[0].transcript ?? "";
-          console.log("socket: transcript sent to client");
-          socket.emit("transcript", transcript);
 
-          // Call generateSpeech directly with the transcript and socket
-          await generateSpeech(transcript, socket);
-          break;
-        case "Metadata":
-          console.log("deepgram: metadata received");
-          break;
-        default:
-          console.log("deepgram: unknown packet received");
+          const newTranscriptPart = getNewTranscriptPart(lastTranscript, transcript);
+          lastTranscript = transcript; // Update the last transcript
+
+          if (newTranscriptPart) {
+            console.log("socket: new transcript part sent to client");
+            socket.emit("transcript", newTranscriptPart);
+
+            // Call generateSpeech with the new part of the transcript and socket
+            await generateSpeech(newTranscriptPart, socket);
+          }
           break;
       }
     });
@@ -108,6 +109,13 @@ const setupDeepgram = (socket) => {
 
   return deepgram;
 };
+
+function getNewTranscriptPart(lastTranscript, currentTranscript) {
+  if (currentTranscript.startsWith(lastTranscript)) {
+    return currentTranscript.slice(lastTranscript.length).trim();
+  }
+  return currentTranscript; // In case the new transcript doesn't start with the last one
+}
 
 async function generateSpeech(text, socket) {
   if (!text || text.trim().length === 0) {
