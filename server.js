@@ -17,7 +17,6 @@ let keepAlive;
 let startTime;
 let deepgramSTTStartTime; // Variable to store the start time for Deepgram transcription
 let firstPacketSent = false; // Flag to check if the first packet has been sent
-let lastTranscript = ""; // To keep track of the last transcript sent to TTS
 
 // Function to manage the size of audio packets
 function createAudioPacketManager(deepgram) {
@@ -53,8 +52,12 @@ const setupDeepgram = (socket) => {
     punctuate: true,
     smart_format: false,
     filler_words: false,
-    interim_results: true, // whether to send only is_final=true
-    model: "enhanced",
+    interim_results: false, // whether to send only is_final=true
+    model: "nova-2",
+    // uncomment below for Apple Watch
+    encoding: "linear16", // Specify encoding here
+    sample_rate: 44100,    // Specify sample rate here
+    channels: 1            // Specify number of channels here
   });
 
   if (keepAlive) clearInterval(keepAlive);
@@ -73,7 +76,7 @@ const setupDeepgram = (socket) => {
     });
 
     deepgram.addListener("error", async (error) => {
-      console.log("deepgram: error recieved");
+      console.log("deepgram: error received");
       console.error(error);
     });
 
@@ -90,17 +93,17 @@ const setupDeepgram = (socket) => {
         case "Results":
           console.log("deepgram: transcript received");
           const transcript = data.channel.alternatives[0].transcript ?? "";
+          console.log("socket: transcript sent to client");
+          socket.emit("transcript", transcript);
 
-          const newTranscriptPart = getNewTranscriptPart(lastTranscript, transcript);
-          lastTranscript = transcript; // Update the last transcript
-
-          if (newTranscriptPart) {
-            console.log("socket: new transcript part sent to client");
-            socket.emit("transcript", newTranscriptPart);
-
-            // Call generateSpeech with the new part of the transcript and socket
-            await generateSpeech(newTranscriptPart, socket);
-          }
+          // Call generateSpeech directly with the transcript and socket
+          await generateSpeech(transcript, socket);
+          break;
+        case "Metadata":
+          console.log("deepgram: metadata received");
+          break;
+        default:
+          console.log("deepgram: unknown packet received");
           break;
       }
     });
@@ -109,13 +112,6 @@ const setupDeepgram = (socket) => {
 
   return deepgram;
 };
-
-function getNewTranscriptPart(lastTranscript, currentTranscript) {
-  if (currentTranscript.startsWith(lastTranscript)) {
-    return currentTranscript.slice(lastTranscript.length).trim();
-  }
-  return currentTranscript; // In case the new transcript doesn't start with the last one
-}
 
 async function generateSpeech(text, socket) {
   if (!text || text.trim().length === 0) {
@@ -161,7 +157,7 @@ io.on("connection", (socket) => {
   let audioPacketManager = createAudioPacketManager(deepgram);
 
   socket.on("packet-sent", (data) => {
-    console.log("socket: client data received");
+    // console.log("socket: client data received");
     if (!firstPacketSent) {
       deepgramSTTStartTime = Date.now(); // Record start time for the first packet
       firstPacketSent = true;
