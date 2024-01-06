@@ -45,18 +45,16 @@ function createAudioPacketManager(deepgram) {
     },
   };
 }
-
 const setupDeepgram = (socket) => {
   const deepgram = client.transcription.live({
     language: "en",
-    punctuate: true,
-    smart_format: false,
+    smart_format: true,
     filler_words: false,
     interim_results: false, // whether to send only is_final=true
     model: "nova-2",
     // uncomment below for Apple Watch
     encoding: "linear16", // Specify encoding here
-    sample_rate: 44100,    // Specify sample rate here
+    sample_rate: 16000,    // Specify sample rate here
     channels: 1            // Specify number of channels here
   });
 
@@ -83,17 +81,18 @@ const setupDeepgram = (socket) => {
     deepgram.addListener("transcriptReceived", async (packet) => {
       if (firstPacketSent) {
         const deepgramSTTTime = Date.now() - deepgramSTTStartTime;
-        console.log(`Deepgram_stt_time: Time from first packet to transcription: ${deepgramSTTTime} ms`);
+        // console.log(`Deepgram_stt_time: Time from first packet to transcription: ${deepgramSTTTime} ms`);
         firstPacketSent = false; // Reset the flag after logging the time
       }
-      console.log("deepgram: packet received");
+      // console.log("deepgram: packet received");
       const data = JSON.parse(packet);
       const { type } = data;
       switch (type) {
         case "Results":
           console.log("deepgram: transcript received");
+          console.log(data.channel.alternatives[0].transcript);
           const transcript = data.channel.alternatives[0].transcript ?? "";
-          console.log("socket: transcript sent to client");
+          // console.log("socket: transcript sent to client");
           socket.emit("transcript", transcript);
 
           // Call generateSpeech directly with the transcript and socket
@@ -115,7 +114,7 @@ const setupDeepgram = (socket) => {
 
 async function generateSpeech(text, socket) {
   if (!text || text.trim().length === 0) {
-    console.log("generateSpeech: Received empty text, not sending to OpenAI TTS");
+    // console.log("generateSpeech: Received empty text, not sending to OpenAI TTS");
     return;
   }
 
@@ -150,13 +149,13 @@ async function generateSpeech(text, socket) {
   }
 }
 
-
+// client-side incoming packets
 io.on("connection", (socket) => {
   console.log("socket: client connected");
   let deepgram = setupDeepgram(socket);
   let audioPacketManager = createAudioPacketManager(deepgram);
 
-  socket.on("packet-sent", (data) => {
+  socket.on("streamAudio", (data) => {
     // console.log("socket: client data received");
     if (!firstPacketSent) {
       deepgramSTTStartTime = Date.now(); // Record start time for the first packet
@@ -164,6 +163,7 @@ io.on("connection", (socket) => {
     }
     audioPacketManager.addToBuffer(data);
 
+    // reconnect Deepgram if state not ready
     if (deepgram.getReadyState() >= 2) {
       console.log("socket: data couldn't be sent to deepgram");
       console.log("socket: retrying connection to deepgram");
@@ -176,6 +176,11 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("socket: client disconnected");
+    try {
+      deepgram.clearInterval(deepgram.keepAlive);
+    } catch (error) {
+      console.error('Error terminanting deepgram keep alive:', error);
+    }
     deepgram.finish();
     deepgram.removeAllListeners();
     deepgram = null;
